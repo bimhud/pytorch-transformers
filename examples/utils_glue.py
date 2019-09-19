@@ -193,6 +193,46 @@ class ColaProcessor(DataProcessor):
         return examples
 
 
+class GnSProcessor(DataProcessor):
+
+    """Processor for the NICE Good and Service data set for classification.
+       Input should be on .tsv format where:
+       first column: Class
+       second column: Classification
+       third column: text
+
+    """
+
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class.
+           return 45 labels for main GnS classs [1,45]
+        """
+        return [str(label_id) for label_id in range(1,46)]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[2] #text column
+            label = line[0] #main class
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
+
+
 class Sst2Processor(DataProcessor):
     """Processor for the SST-2 data set (GLUE version)."""
 
@@ -557,6 +597,8 @@ def compute_metrics(task_name, preds, labels):
     assert len(preds) == len(labels)
     if task_name == "cola":
         return {"mcc": matthews_corrcoef(labels, preds)}
+    elif task_name == "gns":
+        return acc_and_f1(preds, labels)
     elif task_name == "sst-2":
         return {"acc": simple_accuracy(preds, labels)}
     elif task_name == "mrpc":
@@ -580,6 +622,7 @@ def compute_metrics(task_name, preds, labels):
 
 processors = {
     "cola": ColaProcessor,
+    "gns": ColaProcessor,
     "mnli": MnliProcessor,
     "mnli-mm": MnliMismatchedProcessor,
     "mrpc": MrpcProcessor,
@@ -593,6 +636,7 @@ processors = {
 
 output_modes = {
     "cola": "classification",
+    "gns": "classification",
     "mnli": "classification",
     "mnli-mm": "classification",
     "mrpc": "classification",
@@ -606,6 +650,7 @@ output_modes = {
 
 GLUE_TASKS_NUM_LABELS = {
     "cola": 2,
+    "gns": 45,
     "mnli": 3,
     "mrpc": 2,
     "sst-2": 2,
