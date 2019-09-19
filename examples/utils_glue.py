@@ -573,9 +573,9 @@ def simple_accuracy(preds, labels):
     return (preds == labels).mean()
 
 
-def acc_and_f1(preds, labels):
+def acc_and_f1(preds, labels, average='binary'):
     acc = simple_accuracy(preds, labels)
-    f1 = f1_score(y_true=labels, y_pred=preds)
+    f1 = f1_score(y_true=labels, y_pred=preds, average=average)
     return {
         "acc": acc,
         "f1": f1,
@@ -598,7 +598,7 @@ def compute_metrics(task_name, preds, labels):
     if task_name == "cola":
         return {"mcc": matthews_corrcoef(labels, preds)}
     elif task_name == "gns":
-        return acc_and_f1(preds, labels)
+        return acc_and_f1(preds, labels, average='micro')
     elif task_name == "sst-2":
         return {"acc": simple_accuracy(preds, labels)}
     elif task_name == "mrpc":
@@ -622,7 +622,7 @@ def compute_metrics(task_name, preds, labels):
 
 processors = {
     "cola": ColaProcessor,
-    "gns": ColaProcessor,
+    "gns": GnSProcessor,
     "mnli": MnliProcessor,
     "mnli-mm": MnliMismatchedProcessor,
     "mrpc": MrpcProcessor,
