@@ -25,6 +25,7 @@ from io import open
 
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,31 @@ class GnSProcessor(DataProcessor):
         """See base class."""
         return self._create_examples(
             self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_test_examples(self, dataframe):
+
+        """See base class.
+            Obtain examples from a given test dataframe
+            @:param dataframe: a raw input dataframe containing text for predicting
+                                the dataframe should have three columns like training and testing but the label can be empty
+        """
+
+        #Convert a dataframe to a list of row, each row as a list of values
+        list_of_lines = dataframe.values.tolist()
+
+        #Convert all values to string
+        logger.info('[before] list_of_lines={0}'.format(list_of_lines))
+        list_of_lines = [[str(ele) for ele in line] for line in list_of_lines]
+        logger.info('[after] list_of_lines={0}'.format(list_of_lines))
+
+        return self._create_examples(list_of_lines, "test")
+
+    def get_label_definition(self, data_dir):
+        df = pd.read_csv(os.path.join(data_dir, "def.tsv"), sep='\t', header=0)
+        labels = [str(label) for label in list(df['Label'])]
+        defs = list(df['Definition'])
+        return dict(zip(labels, defs))
+
 
     def get_labels(self):
         """See base class.
