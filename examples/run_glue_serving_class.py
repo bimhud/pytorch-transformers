@@ -60,7 +60,24 @@ MODEL_CLASSES = {
 
 class PyTorchTransformer(object):
 
+
+    def __del__(self):
+        if self.model:
+            del self.model
+
+        if self.processor:
+            del self.processor
+
+        if self.tokenizer:
+            del self.tokenizer
+
+
     def __init__(self, args):
+        """
+            Initial a PyTorchTransformer for predicting
+
+        :param args: namespace containing values of params
+        """
         self.args = args
 
         #LOG
@@ -68,22 +85,6 @@ class PyTorchTransformer(object):
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                             datefmt='%m/%d/%Y %H:%M:%S',
                             level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
-        logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-                       args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.fp16)
-
-    def __del__(self):
-        pass
-
-    def predict(self, dataframe):
-        args = self.args
-
-        # Setup distant debugging if needed
-        if args.server_ip and args.server_port:
-            # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
-            import ptvsd
-            print("Waiting for debugger attach")
-            ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
-            ptvsd.wait_for_attach()
 
         # Setup CUDA, GPU & distributed training
         if args.local_rank == -1 or args.no_cuda:
@@ -94,6 +95,7 @@ class PyTorchTransformer(object):
             device = torch.device("cuda", args.local_rank)
             torch.distributed.init_process_group(backend='nccl')
             args.n_gpu = 1
+
         args.device = device
 
         # Set seed
@@ -102,54 +104,49 @@ class PyTorchTransformer(object):
         # Prepare GLUE task
         if args.task_name not in processors:
             raise ValueError("Task not found: %s" % (args.task_name))
-        processor = processors[args.task_name]()
+
+        self.processor = processors[args.task_name]()
         args.output_mode = output_modes[args.task_name]
-        label_list = processor.get_labels()
-        num_labels = len(label_list)
+        self.label_list = self.processor.get_labels()
+        self.num_labels = len(self.label_list)
 
         # Load pretrained model and tokenizer
         if args.local_rank not in [-1, 0]:
             torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
+        checkpoint = args.output_dir
         config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-        config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path,
-                                              num_labels=num_labels, finetuning_task=args.task_name)
-        tokenizer = tokenizer_class.from_pretrained(
-            args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
-        model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path),
-                                            config=config)
+        self.tokenizer = tokenizer_class.from_pretrained(checkpoint, do_lower_case=args.do_lower_case)
 
-        if args.local_rank == 0:
-            torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+        self.model = model_class.from_pretrained(checkpoint)
 
+
+    def predict(self, dataframe=None):
+
+        args = self.args
         # Prediction
-        results = []
-
-        if args.do_test and args.local_rank in [-1, 0]:
-
-            #@TODO: continue fixing this
+        if args.do_test:
             # Load testing file
-            if dataframe is None or len(dataframe) <=0 and args.test_file:
-                logger.info('Obtain dataframe from args.test_file={0}'.format(args.test_file))
-                dataframe= pd.read_csv(args.test_file, sep='\t', header=None)
+            if dataframe is None or len(dataframe) <=0:
+                if args.test_file:
+                    logger.info('Obtain dataframe from args.test_file={0}'.format(args.test_file))
+                    dataframe = pd.read_csv(args.test_file, sep='\t', header=None)
 
-            tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
-            checkpoints = [args.output_dir]
-            if args.eval_all_checkpoints:
-                checkpoints = list(os.path.dirname(c) for c in
-                                   sorted(glob.glob(args.output_dir + '/**/' + WEIGHTS_NAME, recursive=True)))
-                logging.getLogger("pytorch_transformers.modeling_utils").setLevel(logging.WARN)  # Reduce logging
-            logger.info("Testing[predicting] the following checkpoints: %s", checkpoints)
-            for checkpoint in checkpoints:
-                global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
-                model = model_class.from_pretrained(checkpoint)
-                model.to(args.device)
-                preds = PyTorchTransformer.test(dataframe, args, model, tokenizer, prefix=global_step)
-                results.append(preds)
+            global_step = ""
 
-        return results
+            self.model.to(args.device)
+            preds = PyTorchTransformer.test(dataframe, args, self.model, self.tokenizer, prefix=global_step)
+            return preds
+
+        logger.error("Unable to obtain predict result, please check arguments")
+
+        return None
 
     def run(args):
+        """
+            a function that can perform fit,evaluate and test from command line using args
+        :return:
+        """
         if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
             raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
 
@@ -495,6 +492,7 @@ class PyTorchTransformer(object):
         processor = processors[args.task_name.lower()]()
 
         label_defs_dict = processor.get_label_definition(args.data_dir)
+        print('label_defs_dict={0}'.format(label_defs_dict))
 
 
         label_map_preverse = {i : label for i, label in enumerate(processor.get_labels())}
@@ -545,18 +543,32 @@ class PyTorchTransformer(object):
             logger.info("***** Predict results {} *****".format(prefix))
 
             if args.output_mode == "classification":
-                preds = np.argmax(preds, axis=1)
+                probs = preds
+                print('probs={0}'.format(probs))
 
-                preds_labels = [label_map_preverse[i] for i in preds] #convert to label
-                preds_labels_defs = [label_defs_dict[label] for label in preds_labels]
-                result = list(zip(preds_labels, preds_labels_defs))
+                topn=10
+                index = np.argsort(-preds, axis=1)[:, :topn]
+                for i in range(len(index)):
+                    pred_index = index[i]
+                    pred_probs = probs[i, index[i]]
 
-                logger.info(' '.join(preds_labels))
-                logger.info(result)
-                results.append(result)
+                    print('top1 predition ={0}'.format(np.argmax(preds, axis=1)))
+
+
+                    preds_labels = [label_map_preverse[i] for i in pred_index] #convert to label
+                    try:
+                        preds_labels_defs = [label_defs_dict[label] for label in preds_labels]
+                    except:
+                        preds_labels_defs = [''] * len(pred_probs) #using empty label definition
+
+                    result = list(zip(preds_labels, pred_probs, preds_labels_defs))
+
+                    logger.info(result)
+                    results.append(result)
 
             elif args.output_mode == "regression":
                 preds = np.squeeze(preds)
+                print('preds with probability={0}'.format(preds))
 
                 results.append(preds)
 

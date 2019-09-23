@@ -234,10 +234,15 @@ class GnSProcessor(DataProcessor):
         return self._create_examples(list_of_lines, "test")
 
     def get_label_definition(self, data_dir):
-        df = pd.read_csv(os.path.join(data_dir, "def.tsv"), sep='\t', header=0)
-        labels = [str(label) for label in list(df['Label'])]
-        defs = list(df['Definition'])
-        return dict(zip(labels, defs))
+        try:
+            df = pd.read_csv(os.path.join(data_dir, "def.tsv"), sep='\t', header=None)
+            df.columns = ['Label','Definition']
+            labels = [str(label) for label in list(df['Label'])]
+            defs = list(df['Definition'])
+            return dict(zip(labels, defs))
+        except:
+            logger.warn('Unable to load definition')
+            return dict()
 
 
     def get_labels(self):
